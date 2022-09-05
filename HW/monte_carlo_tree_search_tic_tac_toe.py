@@ -14,7 +14,7 @@ class MCTS:
         self.children = defaultdict(set)  # children of each node 每个节点的子节点
         self.exploration_weight = exploration_weight # 探索某节点的概率
         self.all_Q = defaultdict(list)  # total reward of all nodes
-        assert policy in {'uct', 'ocba','AOAP'}, 'Policy must be either uct or ocba or AOAP!' 
+        assert policy in {'uct', 'ocba'}, 'Policy must be either uct or ocba!' 
         self.policy = policy
         self.std = defaultdict(float)  # std of each node 各节点标准差
         self.ave_Q = defaultdict(float) # 存放每个节点的平均回报
@@ -93,8 +93,6 @@ class MCTS:
             else: #若没有待探索的节点，则根据策略不同选择不同方法
                 if self.policy == 'uct':
                     a = self._uct_select(node)  # descend a layer deeper
-                elif self.policy == 'AOAP':
-                    a = self._AOAP_select(node)
                 else:
                     a = self._ocba_select(node)
                 node = a
@@ -122,12 +120,15 @@ class MCTS:
             '''
             self.Q[node] += r #更新该节点的回报
             self.all_Q[node].append(r)
+            
             old_ave_Q = self.ave_Q[node] #保存之前的平均回报
             self.ave_Q[node] = self.Q[node] / self.N[node] #更新当前平均回报
             # 计算节点的标准差
-            self.std[node] = self.sigma_0 if self.N[node] == 1 else sqrt(((self.N[node]-1)*self.std[node]**2 + (r - old_ave_Q) * (r - self.ave_Q[node]))/self.N[node])
+            self.std[node] = sqrt(((self.N[node]-1)*self.std[node]**2 + (r - old_ave_Q) * (r - self.ave_Q[node]))/self.N[node]) 
             
-            
+            if self.std[node] == 0:
+               self.std[node] = self.sigma_0
+              
 
     def _uct_select(self, node):
         
@@ -156,45 +157,50 @@ class MCTS:
         all_actions = self.children[node] #将所有子节点存到all_actions里
         b = max(all_actions, key=lambda n: self.ave_Q[n]) #选平均回报最高的
         best_Q = self.ave_Q[b] #存到best_Q
-        suboptimals_set, best_actions_set = set(), set() #定义空集合存储次优集和最优行动集
+        suboptimals_set, best_actions_set, select_actions_set = set(), set(), set() #定义空集合存储次优集和最优行动集
         for k in all_actions:
             if self.ave_Q[k] == best_Q:
                 best_actions_set.add(k) #平均回报最高的子节点被存入最优行动集 其余节点在次优集
             else:
                 suboptimals_set.add(k)
-        delta = defaultdict(int) #定义delta
-        for k in all_actions:
-            delta[k] = abs(self.ave_Q[k] - best_Q) # Δ =子节点各自的平均回报值-最优节点的平均回报值
+        
         if len(suboptimals_set) == 0:
             return min(self.children[node], key=lambda n: self.N[n]) #若次优集为空，则选择遍历次数最小的子节点
+        
+        if len(best_actions_set) != 1:
+            b = max(best_actions_set, key=lambda n : (self.std[node])**2 / self.N[n]) #若最优集包含不止一个，则选择遍历次数最小方差最大的子节点为最优
+            
+        for k in all_actions:
+            if self.ave_Q[k] != best_Q:
+                select_actions_set.add(k)
+        select_actions_set.add(b)
+        
+        delta = defaultdict(float) #定义delta
+        for k in select_actions_set:
+            delta[k] = self.ave_Q[k] - best_Q # Δ =子节点各自的平均回报值-最优节点的平均回报值
         
         # Choose a random one as reference
         ref = next(iter(suboptimals_set)) #从次优集中选择一个
 
-        para = defaultdict(int)
-        ref_std_delta = self.std[ref]/delta[ref]#std_delta=std/delta
+        para = defaultdict(float)
+        ref_std_delta = self.std[ref]/delta[ref] #std_delta=std/delta
         para_sum = 0
         for k in suboptimals_set:
             para[k] = ((self.std[k]/delta[k])/(ref_std_delta))**2 #ref的para为1，其他为相对值 (std/delta//std/delta)²
-        
-        
-        for k in best_actions_set:
-            para[k] = sqrt( #sqrt(sum(std/delta)²)
-                sum(
-                    (self.std[k]*para[c]/self.std[c])**2 for c in suboptimals_set
-                )
-            )
+               
+        para[b] = sqrt(sum((self.std[b]*para[c]/self.std[c])**2 for c in suboptimals_set))
 
         para_sum = sum(para.values()) #values()以列表返回字典中的所有值  该式对字典的所有值求和
         para[ref] = 1
        
-        totalBudget = sum([self.N[c] for c in self.children[node]])+1 #单个节点(包括其子节点)总访问次数
+        totalBudget = sum([self.N[c] for c in select_actions_set])+1
         ref_sol = (totalBudget)/para_sum
         
-        return max(self.children[node], key=lambda n:para[n]*ref_sol - self.N[n]) #para% * 总访问次数 - 总访问字数
-        # para%越大 该子节点越有可能被选中
+        return max(select_actions_set, key=lambda n:para[n]*ref_sol - self.N[n])
 
     def _AOAP_select():
+      #请在该函数下补充完整
+    def _TTTS_select():
         #请在该函数下补充完整
        
 
